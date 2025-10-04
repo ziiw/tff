@@ -1,0 +1,23 @@
+{
+  "name": "@tff/core",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "dev": "tsc -w -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "latest",
+    "openai": "latest",
+    "@temporalio/worker": "latest",
+    "@temporalio/workflow": "latest"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
