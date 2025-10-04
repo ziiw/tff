@@ -1,4 +1,4 @@
-import { Agent, ExecutionResult, JsonObject, LlmRequest, NextStep, PauseReason, Tool, ToolError, ToolOutcome } from './types';
+import { Agent, ExecutionResult, JsonObject, LlmRequest, NextStep, PauseReason, Tool, ToolError, ToolOutcome, LlmStreamResponse, LlmResponseOrStream } from './types';
 import { appendEvent, formatError } from './thread';
 import { threadToXml } from './context';
 import { runPrefetch, toolByIntent } from './agent';
@@ -33,29 +33,67 @@ export async function execute(agent: Agent, initialThread: Agent['runtime'] exte
     messages.push({ role: 'user', content: config.prompt.render({ thread, prefetch }) });
     messages.push({ role: 'user', content: userContent });
 
-    const llmRes = await runtime.llm.complete({ messages, responseFormat: 'json' });
+    let llmRes: LlmResponseOrStream;
+    let nextStep: NextStep;
+
+    if (config.streaming && runtime.llm.stream) {
+      // Use streaming
+      const streamRes = await runtime.llm.stream({ messages, responseFormat: 'json' });
+      let streamingContent = '';
+
+      for await (const chunk of streamRes.chunks) {
+        if (!chunk.done) {
+          streamingContent += chunk.content;
+          // Emit streaming event if callback is provided
+          if (runtime.onEvent) {
+            await runtime.onEvent({
+              type: 'llm_stream_chunk',
+              data: { content: chunk.content, accumulated: streamingContent },
+              ts: runtime.now().toISOString(),
+              id: runtime.id(),
+            });
+          }
+        }
+      }
+
+      const finalRes = await streamRes.final();
+      llmRes = finalRes;
+    } else {
+      // Use regular completion
+      llmRes = await runtime.llm.complete({ messages, responseFormat: 'json' });
+    }
+
     if (llmRes.type !== 'json') {
       runtime.log?.('warn', 'Non-JSON response from LLM; treating as done', { text: llmRes.text ?? '' as any });
       return { thread, status: 'completed' };
     }
 
-    const nextStep = llmRes.data as NextStep;
+    nextStep = llmRes.data as NextStep;
     const tool = toolByIntent(config.tools, nextStep.intent);
 
     const pauseReason = shouldPauseForIntent(nextStep.intent, tool);
     if (pauseReason) {
       thread = appendEvent(thread, { type: nextStep.intent, data: nextStep });
+      if (runtime.onEvent) {
+        await runtime.onEvent(thread.events[thread.events.length - 1]);
+      }
       return { thread, status: 'paused', pauseReason };
     }
 
     if (!tool) {
       runtime.log?.('warn', 'Unknown intent from model; pausing', { intent: nextStep.intent as any });
       thread = appendEvent(thread, { type: 'unknown_intent', data: nextStep });
+      if (runtime.onEvent) {
+        await runtime.onEvent(thread.events[thread.events.length - 1]);
+      }
       return { thread, status: 'paused', pauseReason: 'await_external' };
     }
 
     // record requested action
     thread = appendEvent(thread, { type: nextStep.intent, data: nextStep });
+    if (runtime.onEvent) {
+      await runtime.onEvent(thread.events[thread.events.length - 1]);
+    }
 
     let outcome: ToolOutcome;
     try {
@@ -69,14 +107,25 @@ export async function execute(agent: Agent, initialThread: Agent['runtime'] exte
     if (outcome.ok) {
       consecutiveErrors = 0;
       if (outcome.events && outcome.events.length) {
-        for (const ev of outcome.events) thread = appendEvent(thread, ev);
+        for (const ev of outcome.events) {
+          thread = appendEvent(thread, ev);
+          if (runtime.onEvent) {
+            await runtime.onEvent(thread.events[thread.events.length - 1]);
+          }
+        }
       }
       thread = appendEvent(thread, { type: `${nextStep.intent}_result`, data: outcome.result as any });
+      if (runtime.onEvent) {
+        await runtime.onEvent(thread.events[thread.events.length - 1]);
+      }
       // continue loop to ask model what to do next
       continue;
     } else {
       consecutiveErrors += 1;
       thread = appendEvent(thread, { type: 'error', data: outcome.error as any });
+      if (runtime.onEvent) {
+        await runtime.onEvent(thread.events[thread.events.length - 1]);
+      }
       if (consecutiveErrors >= retryLimit) {
         return { thread, status: 'failed', lastError: outcome.error.message };
       }

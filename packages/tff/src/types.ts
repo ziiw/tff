@@ -71,7 +71,7 @@ export interface PromptTemplate {
 }
 
 export interface LlmRequest {
-  model: string;
+  model?: string;
   messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content?: any; name?: string; tool_call_id?: string }>;
   responseFormat?: 'json' | 'text';
 }
@@ -90,8 +90,24 @@ export interface LlmResponseText {
 
 export type LlmResponse<T = NextStep> = LlmResponseJson<T> | LlmResponseText;
 
+export interface LlmStreamChunk<T = NextStep> {
+  type: 'chunk';
+  content: string;
+  done: boolean;
+  raw?: unknown;
+}
+
+export interface LlmStreamResponse<T = NextStep> {
+  type: 'stream';
+  chunks: AsyncIterable<LlmStreamChunk<T>>;
+  final: () => Promise<LlmResponse<T>>;
+}
+
+export type LlmResponseOrStream<T = NextStep> = LlmResponse<T> | LlmStreamResponse<T>;
+
 export interface LlmAdapter {
   complete: (req: LlmRequest) => Promise<LlmResponse>;
+  stream?: (req: LlmRequest) => Promise<LlmStreamResponse>;
 }
 
 export interface AgentConfig {
@@ -102,6 +118,7 @@ export interface AgentConfig {
   maxSteps?: number; // guardrail
   retryLimitPerIntent?: number; // default 3
   prefetch?: Array<PrefetchProvider>;
+  streaming?: boolean; // enable streaming responses from LLM
 }
 
 export interface AgentRuntime {
@@ -109,6 +126,7 @@ export interface AgentRuntime {
   now: () => Date;
   id: () => string; // uuid/ulid generator
   log?: (level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: JsonObject) => void;
+  onEvent?: (event: Event) => void | Promise<void>; // callback for real-time event notifications
 }
 
 export interface Agent {
