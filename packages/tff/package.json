@@ -10,15 +10,21 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "dev": "tsc -w -p tsconfig.json",
-    "example": "npm run build && node dist/example.js"
+    "example": "npm run build && node dist/example.js",
+    "example:bun": "bun run src/example.ts"
   },
   "dependencies": {
-    "zod": "latest",
-    "openai": "latest",
+    "@boundaryml/baml": "^0.210.0",
     "@temporalio/worker": "latest",
-    "@temporalio/workflow": "latest"
+    "@temporalio/workflow": "latest",
+    "openai": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "typescript": "^5.6.3"
-  }
+  },
+  "trustedDependencies": [
+    "protobufjs"
+  ]
 }

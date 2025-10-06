@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@boundaryml/baml": "^0.210.0"
+  }
+}

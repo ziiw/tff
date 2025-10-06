@@ -62,6 +62,10 @@ export interface Tool<TArgsSchema = unknown, TResult = unknown> {
   description?: string;
   // Optional zod schema type via generics; validated externally
   // Use a permissive parameter type to preserve assignability when Tool is used in arrays
+  // Optional: normalize how args are extracted from model next step
+  normalizeArgs?: (nextStep: NextStep) => any;
+  // Optional: if true, execution of this tool should end the turn
+  endTurn?: boolean;
   execute: (args: any, ctx: ToolExecutionContext) => Promise<ToolOutcome<TResult>> | ToolOutcome<TResult>;
 }
 
@@ -112,6 +116,8 @@ export interface LlmAdapter {
 
 export interface AgentConfig {
   name: string;
+  // Optional role to alter default executor behavior
+  role?: 'coordinator' | 'worker';
   systemPrompt?: string;
   prompt: PromptTemplate;
   tools: Tool[];
@@ -119,6 +125,8 @@ export interface AgentConfig {
   retryLimitPerIntent?: number; // default 3
   prefetch?: Array<PrefetchProvider>;
   streaming?: boolean; // enable streaming responses from LLM
+  // Optional BAML function name for structured outputs
+  bamlFunction?: string;
 }
 
 export interface AgentRuntime {

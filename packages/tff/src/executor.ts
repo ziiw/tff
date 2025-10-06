@@ -25,7 +25,12 @@ export async function execute(agent: Agent, initialThread: Agent['runtime'] exte
       'Here is the full context/history so far in XML-like blocks:',
       contextXml,
       '',
-      'What is the next step? Respond with a JSON object that includes an "intent" key and any arguments needed.',
+      'What is the next step? Respond with a JSON object using this format:',
+      '{"intent": "tool_name", "arguments": {your args here}}',
+      '',
+      'Examples:',
+      '- {"intent": "respond", "arguments": {"message": "Hello!"}}',
+      '- {"intent": "search_recipes", "arguments": {"ingredients": ["chicken", "rice"]}}',
     ].join('\n');
 
     const messages: LlmRequest['messages'] = [];
@@ -97,7 +102,26 @@ export async function execute(agent: Agent, initialThread: Agent['runtime'] exte
 
     let outcome: ToolOutcome;
     try {
-      outcome = await tool.execute(nextStep as any, { thread });
+      // Extract arguments from the LLM response in a standardized way
+      // Priority: arguments > args > top-level fields
+      let extractedArgs: any;
+      
+      if (tool.normalizeArgs) {
+        // Tool has custom normalization logic
+        extractedArgs = tool.normalizeArgs(nextStep);
+      } else {
+        // Standard extraction: look for arguments/args object first
+        const argsObj = (nextStep as any).arguments ?? (nextStep as any).args;
+        if (argsObj && typeof argsObj === 'object') {
+          extractedArgs = argsObj;
+        } else {
+          // Fallback: use top-level fields (excluding 'intent')
+          const { intent, ...rest } = nextStep as any;
+          extractedArgs = Object.keys(rest).length > 0 ? rest : nextStep;
+        }
+      }
+      
+      outcome = await tool.execute(extractedArgs as any, { thread });
     } catch (e) {
       const err = formatError(e);
       const stackVal = typeof err.stack === 'string' ? err.stack : undefined;
@@ -117,6 +141,12 @@ export async function execute(agent: Agent, initialThread: Agent['runtime'] exte
       thread = appendEvent(thread, { type: `${nextStep.intent}_result`, data: outcome.result as any });
       if (runtime.onEvent) {
         await runtime.onEvent(thread.events[thread.events.length - 1]);
+      }
+
+      // If tool is marked to end the turn, or coordinator responded, finish this execution
+      const coordinatorResponded = config.role === 'coordinator' && nextStep.intent === 'respond';
+      if (tool.endTurn || coordinatorResponded) {
+        return { thread, status: 'paused', pauseReason: 'done_for_now' };
       }
       // continue loop to ask model what to do next
       continue;
